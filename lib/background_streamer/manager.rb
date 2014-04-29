@@ -6,10 +6,12 @@ module BackgroundStreamer
       @options = {
         :timeout => opts[:timeout]
       }
-      start_workers opts
+      @started = false
+      @started_mutex = Mutex.new
     end
 
     def enqueue_work work
+      start_workers
       @work_queue << work
     end
 
@@ -33,20 +35,26 @@ module BackgroundStreamer
     private
 
     def start_workers options = {}
-      @workers = []
-      @work_queue = SizedQueue.new (options[:queue_size] || 50)
+      @started_mutex.synchronize do
+        return if @started
 
-      (options[:number_of_workers] || 10).times do |worker|
-        debug{"Starting worker #{worker}"}
-        @workers << Thread.new do
-          loop do
-            job = @work_queue.pop
+        @workers = []
+        @work_queue = SizedQueue.new (options[:queue_size] || 50)
 
-            break if job === :stop
+        (options[:number_of_workers] || 5).times do |worker|
+          debug{"Starting worker #{worker}"}
+          @workers << Thread.new do
+            loop do
+              job = @work_queue.pop
 
-            process_job(job)
+              break if job === :stop
+
+              process_job(job)
+            end
           end
         end
+
+        @started = true
       end
     end
 
