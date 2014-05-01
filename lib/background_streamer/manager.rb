@@ -7,6 +7,7 @@ module BackgroundStreamer
       }
       @started = false
       @started_mutex = Mutex.new
+      @num_of_worker = opts[:number_of_workers] || 5
     end
 
     def enqueue_work work
@@ -40,7 +41,7 @@ module BackgroundStreamer
         @workers = []
         @work_queue = SizedQueue.new (options[:queue_size] || 50)
 
-        (options[:number_of_workers] || 5).times do |worker|
+        @num_of_worker.times do |worker|
           debug{"Starting worker #{worker}"}
           @workers << Thread.new do
             loop do
