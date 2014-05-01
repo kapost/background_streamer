@@ -2,7 +2,6 @@ module BackgroundStreamer
   class Manager
 
     def initialize(opts = {})
-      debug {"Creating"}
       @options = {
         :timeout => opts[:timeout]
       }
@@ -64,20 +63,24 @@ module BackgroundStreamer
       error{"Processing failed: #{ex} => #{ex.backtrace}"}    
     end
 
+    def logger
+      BackgroundStreamer.logger
+    end
+
     def debug
-      BackgroundStreamer.logger.debug {"[PID: #{$$}] Stream Manager: #{yield}"}
+      logger.debug {yield}
     end
 
     def info
-      BackgroundStreamer.logger.info {"[PID: #{$$}] Stream Manager: #{yield}"}
+      logger.info {yield}
     end
 
     def warn
-      BackgroundStreamer.logger.warn {"[PID: #{$$}] Stream Manager: #{yield}"}
+      logger.warn {yield}
     end
 
     def error
-      BackgroundStreamer.logger.error {"[PID: #{$$}] Stream Manager: #{yield}"}
+      logger.error {yield}
     end
   end
 end

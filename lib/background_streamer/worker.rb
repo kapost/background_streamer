@@ -25,11 +25,17 @@ module BackgroundStreamer
     def initialize(env, status, headers, body, io)
       @job_id = self.class.inc
       @io = io
+      @request_id = env["action_dispatch.request_id"]
 
       @status, @headers, @body = create_app(status, headers, body, env)
     end
 
     def process(options = {})
+      if logger.respond_to?(:push_tags)
+        logger.push_tags(@request_id) if @request_id
+        logger.push_tags("streamer.#{@job_id}")
+      end
+
       @options = options
 
       now = Time.now
@@ -39,6 +45,11 @@ module BackgroundStreamer
     ensure
       close
       info {"Finished in #{Time.now - now} seconds."}
+
+      if logger.respond_to?(:pop_tags)
+        logger.pop_tags
+        logger.pop_tags if @request_id
+      end
     end
 
     private
@@ -78,7 +89,7 @@ module BackgroundStreamer
         @io.close # flush and uncork socket immediately, no keepalive
       end
     rescue => e
-      warn{"Closing connection failed: #{e} => #{e.backtrace}"}
+      info{"Closing connection failed: #{e} => #{e.backtrace}"}
     end
 
     def write_chunk chunk
@@ -110,20 +121,24 @@ module BackgroundStreamer
       @io << buffer
     end
 
+    def logger
+      BackgroundStreamer.logger
+    end
+
     def debug
-      BackgroundStreamer.logger.debug {"[PID: #{$$}] Stream Worker #{@job_id}: #{yield}"}
+      logger.debug {yield}
     end
 
     def info
-      BackgroundStreamer.logger.info {"[PID: #{$$}] Stream Worker #{@job_id}: #{yield}"}
+      logger.info {yield}
     end
 
     def warn
-      BackgroundStreamer.logger.warn {"[PID: #{$$}] Stream Worker #{@job_id}: #{yield}"}
+      logger.warn {yield}
     end
 
     def error
-      BackgroundStreamer.logger.error {"[PID: #{$$}] Stream Worker #{@job_id}: #{yield}"}
+      logger.error {yield}
     end
   end
 end
