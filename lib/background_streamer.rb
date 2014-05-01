@@ -20,7 +20,7 @@ module BackgroundStreamer
       return @default_logger if defined?(@default_logger)
 
       @default_logger = Logger.new(STDOUT)
-      @default_logger.level = @default_logger::INFO
+      @default_logger.level = Logger::INFO
       @default_logger
     end
   end
