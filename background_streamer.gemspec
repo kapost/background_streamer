@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.authors       = ["Raul E Rangel"]
   spec.email         = ["Raul@kapost.com"]
   spec.description   = %q{Stream Rack responses in the background!}
-  spec.summary       = %q{Uses a thread pool to stream results in the background for long running requests.}
+  spec.summary       = %q{Dispatches a thread in the background for long running requests.}
   spec.homepage      = ""
   spec.license       = "MIT"
 

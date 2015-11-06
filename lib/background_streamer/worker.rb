@@ -3,142 +3,111 @@ require 'timeout'
 
 module BackgroundStreamer
   class Worker
-    CRLF= "\r\n".freeze
+    CRLF = "\r\n".freeze
+    RACK_HIJACK = 'rack.hijack'.freeze
+    RACK_HIJACK_IO = 'rack.hijack_io'.freeze
+    ACTION_DISPATCH_REQUEST_ID = 'action_dispatch.request_id'.freeze
+    X_REQUEST_ID = 'X_REQUEST_ID'.freeze
 
-    @count = 0
-    @middleware = []
+    attr_reader :options, :timeout, :request_id, :status, :headers, :io, :body
 
     class << self
-      attr_accessor :count
-      attr_accessor :middleware
-      def inc
-        @count += 1
-      end
+      def perform_async(env, body, options={})
+        env[RACK_HIJACK].call
 
-      def use middleware
-        @middleware << middleware
+        Thread.new do 
+          worker = new(env, body, options)
+          worker.perform
+
+          BackgroundStreamer.on_worker_exit.call if BackgroundStreamer.on_worker_exit
+        end
       end
     end
+      
+    def initialize(env, body, options = {})
+      @io         = env[RACK_HIJACK_IO]
+      @request_id = env[ACTION_DISPATCH_REQUEST_ID] || env[X_REQUEST_ID]
+      @options    = options
+      @timeout    = @options.delete(:timeout) || 15.seconds
 
-    use Rack::Deflater
-
-    def initialize(env, status, headers, body, io)
-      @job_id = self.class.inc
-      @io = io
-      @request_id = env["action_dispatch.request_id"]
-
-      @status, @headers, @body = create_app(status, headers, body, env)
+      app = -> _ { [200, create_headers, body] }
+      @status, @headers, @body = Rack::Deflater.new(app).call(env)
     end
 
-    def process(options = {})
-      if logger.respond_to?(:push_tags)
-        logger.push_tags(@request_id) if @request_id
-        logger.push_tags("streamer.#{@job_id}")
-      end
-
-      @options = options
-
+    def perform
+      logger.push_tags("#{self.class.name}.#{request_id}") if logger.respond_to?(:push_tags)
       now = Time.now
-
-      info { "Starting." }
+      logger.info "Starting ..."
+      
       stream
     ensure
       close
-      info {"Finished in #{Time.now - now} seconds."}
-
-      if logger.respond_to?(:pop_tags)
-        logger.pop_tags
-        logger.pop_tags if @request_id
-      end
+      logger.info "Finished in #{Time.now - now} seconds."
+      logger.pop_tags if logger.respond_to?(:pop_tags)
     end
 
     private
 
-    def create_app status, headers, body, env
-      app = -> _ {[status, create_headers(headers), body]}
-      self.class.middleware.each do |middleware|
-        app = middleware.new(app)
-      end
-
-      app.call(env)
-    end
-
     def stream
       write_headers
 
-      Timeout::timeout(@options[:timeout] || 15.seconds) do
-        debug {"Writing Body"}
-        @body.each do |chunk|
+      Timeout::timeout(timeout) do
+        logger.debug "Writing Body"
+
+        body.each do |chunk|
           write_chunk chunk
         end
       end
-    rescue Timeout::Error => e
-      warn{"Timeout limit reached."}
-      write_chunk "TIMEOUT!#{CRLF}"
     rescue => e
-      warn{"Streaming has failed: #{e} => #{e.backtrace}"}
-      raise
+      logger.warn "Streaming has failed: #{e} => #{e.backtrace}"
     ensure
       write_chunk ""
     end
 
     def close
-      debug{"Closing connection"}
-      unless @io.closed?
-        @io.shutdown # in case of fork() in Rack app
-        @io.close # flush and uncork socket immediately, no keepalive
+      logger.debug "Closing connection"
+
+      unless io.closed?
+        io.shutdown # in case of fork() in Rack app
+        io.close # flush and uncork socket immediately, no keepalive
       end
     rescue => e
-      info{"Closing connection failed: #{e} => #{e.backtrace}"}
+      logger.info "Closing connection failed: #{e} => #{e.backtrace}"
     end
 
-    def write_chunk chunk
-      @io << [chunk.size.to_s(16), CRLF, chunk, CRLF].join
+    def write_chunk(chunk)
+      io << [chunk.size.to_s(16), CRLF, chunk, CRLF].join
     end
 
-    def create_headers headers
-      headers = {
-        "Date" => Time.now.strftime("%a %e %b %T %Y %Z"),
-        "Status" => "200 OK",
-        "Connection" => "close",
-        "Content-Type" => "application/json; charset=utf-8",
-        "Cache-Control" => "max-age=0, private, no-cache",
-        "Transfer-Encoding" => "chunked"
-      }.merge!(headers)
+    def create_headers
+      {
+        "Date"              => Time.now.strftime("%a %e %b %T %Y %Z"),
+        "Status"            => "200 OK",
+        "Connection"        => "close",
+        "Content-Type"      => "application/json; charset=utf-8",
+        "Cache-Control"     => "max-age=0, private, no-cache",
+        "Transfer-Encoding" => "chunked",
+        "X-Request-Id"      => request_id, 
+      }
     end
 
     def write_headers
-      debug {"Writing Headers"}
+      logger.debug "Writing Headers"
 
       buffer = ""
       buffer << "HTTP/1.1 200 OK" << CRLF
-      @headers.each do |key, value|
+
+      headers.each do |key, value|
         buffer << "#{key}: #{value}#{CRLF}"
       end
 
       buffer << CRLF
 
-      @io << buffer
+      io << buffer
     end
 
     def logger
       BackgroundStreamer.logger
-    end
-
-    def debug
-      logger.debug {yield}
-    end
-
-    def info
-      logger.info {yield}
-    end
-
-    def warn
-      logger.warn {yield}
-    end
-
-    def error
-      logger.error {yield}
     end
   end
 end
