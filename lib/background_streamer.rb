@@ -15,8 +15,17 @@ module BackgroundStreamer
     def logger=(logger)
       @logger = logger
     end
+
+    def max_threads
+      @max_threads ||= 50
+    end
+
+    def max_threads=(val)
+      @max_threads = val
+    end
   end
 end
 
-require "background_streamer/version"
+require 'background_streamer/version'
+require 'background_streamer/errors'
 require 'background_streamer/worker'
