@@ -1,6 +1,6 @@
 # BackgroundStreamer
 
-Allows you to use a thread pool to process streaming of long running requests. This helps you get around
+Allows you to use a thread to process streaming of long running requests. This helps you get around
 the timout limits that unicorn places on a request.
 
 ## Installation
@@ -19,38 +19,29 @@ Or install it yourself as:
 
 ## Usage
 
-    require 'background_streamer'
-    
-    class BulkController < ApplicationController
-      include BackgroundStreamer::Helper
-    
-      create_stream_manager :stream
+```ruby
+require 'background_streamer'
 
-      def query       
-        # We don't want Rack::Cache doing anything crazy
-        self.response.headers['Last-Modified'] = Time.now.ctime.to_s
+class BulkController < ApplicationController
+  def query       
+    # We don't want Rack::Cache doing anything crazy
+    self.response.headers['Last-Modified'] = Time.now.ctime.to_s
 
-        if env['rack.hijack']
-          perform_hijack
-        else
-          self.response_body = get_all
-        end
-      end
-
-      private
-
-      def perform_hijack    
-        env['rack.hijack'].call
-        io = env['rack.hijack_io']
-
-        stream << BackgroundStreamer::Worker.new(env, 200, {"X-Request-Id" => env['X_REQUEST_ID']}, get_all, io)
-        self.response_body = []
-      end
-
-      def get_all
-        1.upto(100).each {|i| i}
-      end
+    if env['rack.hijack']
+      BackgroundStreamer::Worker.perform_async(env, get_all, timeout: 5)
+      self.response_body = []
+    else
+      self.response_body = get_all
     end
+  end
+
+  private
+
+  def get_all
+    1.upto(100).each { |i| i }
+  end
+end
+```
 
 ## Contributing
 
