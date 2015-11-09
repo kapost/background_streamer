@@ -12,15 +12,27 @@ module BackgroundStreamer
     attr_reader :options, :timeout, :request_id, :status, :headers, :io, :body
 
     class << self
-      def perform_async(env, body, options={})
+      def perform_async(env, body, options = {})
+        threads.keep_if(&:alive?)
+
+        if threads.size >= BackgroundStreamer.max_threads
+          raise ThreadLimitExceeded, "Thread limit of #{BackgroundStreamer.max_threads} exceeded"
+        end
+
         env[RACK_HIJACK].call
 
-        Thread.new do 
+        threads << Thread.new do
           worker = new(env, body, options)
           worker.perform
 
           BackgroundStreamer.on_worker_exit.call if BackgroundStreamer.on_worker_exit
         end
+      end
+
+      private
+
+      def threads
+        @threads ||= []
       end
     end
       

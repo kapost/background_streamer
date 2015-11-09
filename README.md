@@ -43,6 +43,33 @@ class BulkController < ApplicationController
 end
 ```
 
+### Configuration
+
+Background streamer provides several configuration options that your app can leverage.
+
+* `logger`: Define a custom logger. *(defaults to a `Logger.new(STDOUT)`)*
+* `max_threads`: Define the thread limit for number of background streams. *(defaults to 50)*
+* `on_worker_exit`: Define a handler for thread unload logic, useful for closing active database
+  connections and the like. *(defaults to `nil`)*
+
+```ruby
+BackgroundStreamer.configure do |config|
+  config.logger = Rails.logger
+
+  config.max_threads = 100
+
+  config.on_worker_exit = proc do
+    ActiveRecord::Base.connection.disconnect!
+  end
+end
+```
+
+### Error Handling
+
+It is possible for `BackgroundStreamer::Worker.perform_async` to raise an error if the `max_thread`
+limit is reached.  Your application should be prepared to handle
+`BackgroundStreamer::ThreadLimitExceeded`.
+
 ## Contributing
 
 1. Fork it
