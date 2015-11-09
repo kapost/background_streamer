@@ -13,13 +13,13 @@ module BackgroundStreamer
 
     class << self
       def perform_async(env, body, options = {})
-        env[RACK_HIJACK].call
-
         threads.keep_if(&:alive?)
 
         if threads.size >= BackgroundStreamer.max_threads
           raise ThreadLimitExceeded, "Thread limit of #{BackgroundStreamer.max_threads} exceeded"
         end
+
+        env[RACK_HIJACK].call
 
         threads << Thread.new do
           worker = new(env, body, options)
