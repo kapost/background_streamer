@@ -19,12 +19,10 @@ module BackgroundStreamer
           raise ThreadLimitExceeded, "Thread limit of #{BackgroundStreamer.max_threads} exceeded"
         end
 
-        env[RACK_HIJACK].call
+        worker = new(env, body, options)
 
         threads << Thread.new do
-          worker = new(env, body, options)
           worker.perform
-
           BackgroundStreamer.on_worker_exit.call if BackgroundStreamer.on_worker_exit
         end
       end
@@ -37,6 +35,8 @@ module BackgroundStreamer
     end
       
     def initialize(env, body, options = {})
+      env[RACK_HIJACK].call
+
       @io         = env[RACK_HIJACK_IO]
       @request_id = env[ACTION_DISPATCH_REQUEST_ID] || env[X_REQUEST_ID]
       @options    = options
@@ -44,14 +44,16 @@ module BackgroundStreamer
 
       app = -> _ { [200, create_headers, body] }
       @status, @headers, @body = Rack::Deflater.new(app).call(env)
+
+      write_headers
     end
 
     def perform
-      logger.push_tags("#{self.class.name}.#{request_id}") if logger.respond_to?(:push_tags)
+      logger.push_tags("#{request_id}:#{self.class.name}") if logger.respond_to?(:push_tags)
       now = Time.now
       logger.info "Starting ..."
       
-      stream
+      write_body
     ensure
       close
       logger.info "Finished in #{Time.now - now} seconds."
@@ -60,9 +62,7 @@ module BackgroundStreamer
 
     private
 
-    def stream
-      write_headers
-
+    def write_body
       Timeout::timeout(timeout) do
         logger.debug "Writing Body"
 
@@ -116,6 +116,8 @@ module BackgroundStreamer
       buffer << CRLF
 
       io << buffer
+    rescue => e
+      logger.warn "Writing headers has failed: #{e} => #{e.backtrace}"
     end
 
     def logger
